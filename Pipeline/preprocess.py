@@ -1,19 +1,19 @@
 import numpy as np
 import pandas as pd
 import os
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import MinMaxScaler
 import polars as pl
-import sqlite3
+import pyarrow
 from scipy.signal import savgol_filter
 
 # Set the directory to the folder this script is in
 script_directory = os.path.dirname(os.path.abspath(__file__))
 os.chdir(os.path.join(script_directory, '..'))  # Go up one directory
-
 # Print all folders in the current directory
 folders = [f for f in os.listdir() if os.path.isdir(f)]
 print("Folders in the current directory:", folders)
-
-# Load data using Polars
 df = pl.read_csv('Data/bills.csv')
 venues_df = pl.read_csv('Data/venues.csv')
 
@@ -26,7 +26,7 @@ df = df.with_columns((df["order_duration_seconds"] / 60).alias("order_duration_m
 # Function to find the non-linear point in the quantile curve
 def find_sensitive_threshold(df, order_type="dinein", column_name='order_duration_minutes', 
                              quantile_min=0.935, quantile_max=0.985, quantile_step=0.001,
-                             window_length=7, polyorder=2, method='second_derivative'):
+                             window_length=7, polyorder=2, method='second_derivative', plot_results=True):
     """
     Finds threshold using more sensitive methods to detect earlier curve changes.
     """
@@ -74,7 +74,7 @@ filtered_datasets = []
 for order_type in order_types:
     type_df = df.filter(pl.col("order_take_out_type_label") == order_type)
     threshold_result = find_sensitive_threshold(type_df, order_type=order_type, column_name='order_duration_minutes', 
-                                                window_length=15, polyorder=3)
+                                                window_length=15, polyorder=3, plot_results=False)
     if threshold_result is not None:
         thresholds_per_type[order_type] = threshold_result
         filtered_datasets.append(type_df)
@@ -83,21 +83,5 @@ for order_type in order_types:
 
 # Combine all filtered datasets into one
 combined_filtered_df = pl.concat(filtered_datasets)
+combined_filtered_df.write_csv("Data/cleansed_data.csv")
 
-# Save to SQLite
-db_path = "Data/cleansed_data.db"
-table_name = "cleansed_orders"
-
-# Connect to SQLite database
-conn = sqlite3.connect(db_path)
-
-# Convert Polars DataFrame to Pandas (since sqlite3 works with Pandas)
-combined_filtered_df_pandas = combined_filtered_df.to_pandas()
-
-# Save to SQLite
-combined_filtered_df_pandas.to_sql(table_name, conn, if_exists="replace", index=False)
-
-# Close connection
-conn.close()
-
-print(f"Filtered dataset saved to SQLite database: {db_path}, table: {table_name}")
