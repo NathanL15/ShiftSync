@@ -1,4 +1,4 @@
-def analyze_peak_hours(data, kmeans=True, gmm=True, agglo=True, graph=False):
+def analyze_peak_hours(data, kmeans=True, gmm=True, agglo=True, overlap=True, graph=False):
     """
     Analyze order data to identify peak hours using different clustering methods.
     
@@ -12,13 +12,17 @@ def analyze_peak_hours(data, kmeans=True, gmm=True, agglo=True, graph=False):
         Whether to run Gaussian Mixture Model clustering
     agglo : bool, default=True
         Whether to run Agglomerative clustering
+    overlap : bool, default=True
+        Whether to analyze and visualize the overlap between different clustering results
+        (Always plots agreement graphs regardless of 'graph' parameter)
     graph : bool, default=False
-        Whether to display graphs of the results
+        Whether to display individual clustering method graphs
     
     Returns:
     --------
     dict
-        Dictionary with concepts as keys and a list of peak hours for each clustering method
+        Dictionary with concepts as keys and a list of peak hours for each clustering method,
+        plus 'overlap_analysis' if overlap=True
     """
     from sklearn.cluster import KMeans, AgglomerativeClustering
     from sklearn.mixture import GaussianMixture
@@ -46,16 +50,11 @@ def analyze_peak_hours(data, kmeans=True, gmm=True, agglo=True, graph=False):
         # Reshape data for clustering
         X = concept_data.select('normalized_order_count').to_numpy()
         
-        if graph:
-            plt.figure(figsize=(15, 10))
-        
-        # Track subplot position
-        plot_position = 0
+        # Initialize dictionaries to track peak hours by method
+        peak_hours_by_method = {}
         
         # 1. KMeans Clustering
         if kmeans:
-            plot_position += 1
-            
             # Apply KMeans clustering (choosing 3 clusters for peak, mid, low)
             km = KMeans(n_clusters=3, random_state=42, n_init=10)
             km_labels = km.fit_predict(X)
@@ -78,36 +77,10 @@ def analyze_peak_hours(data, kmeans=True, gmm=True, agglo=True, graph=False):
             
             # Store results
             results[concept]['kmeans'] = peak_hours.select(['hour', 'normalized_order_count']).sort('hour')
-            
-            # Plot data if requested
-            if graph:
-                if kmeans and gmm and agglo:
-                    plt.subplot(3, 1, plot_position)
-                
-                sns.lineplot(
-                    data=concept_data_km.to_pandas(),
-                    x='hour',
-                    y='normalized_order_count'
-                )
-                
-                # Highlight peak hours
-                for row in peak_hours.iter_rows(named=True):
-                    plt.axvspan(row['hour'] - 0.5, row['hour'] + 0.5, color='yellow', alpha=0.3)
-                
-                plt.title(f'Average Normalized Order Counts ({concept}) - KMeans Clustering')
-                plt.xlabel('Hour of the Day')
-                plt.ylabel('Normalized Count')
-                plt.grid(True)
-                plt.xticks(range(0, 24))
-                
-                if not (gmm or agglo):
-                    plt.tight_layout()
-                    plt.show()
+            peak_hours_by_method['kmeans'] = set(peak_hours.select('hour').to_series().to_list())
         
         # 2. Gaussian Mixture Model
         if gmm:
-            plot_position += 1
-            
             # Apply Gaussian Mixture Model
             gm = GaussianMixture(n_components=3, random_state=42)
             gm_labels = gm.fit_predict(X)
@@ -130,38 +103,10 @@ def analyze_peak_hours(data, kmeans=True, gmm=True, agglo=True, graph=False):
             
             # Store results
             results[concept]['gmm'] = peak_hours.select(['hour', 'normalized_order_count']).sort('hour')
-            
-            # Plot data if requested
-            if graph:
-                if kmeans and gmm and agglo:
-                    plt.subplot(3, 1, plot_position)
-                elif kmeans and gmm:
-                    plt.subplot(2, 1, plot_position)
-                
-                sns.lineplot(
-                    data=concept_data_gm.to_pandas(),
-                    x='hour',
-                    y='normalized_order_count'
-                )
-                
-                # Highlight peak hours
-                for row in peak_hours.iter_rows(named=True):
-                    plt.axvspan(row['hour'] - 0.5, row['hour'] + 0.5, color='yellow', alpha=0.3)
-                
-                plt.title(f'Average Normalized Order Counts ({concept}) - GMM Clustering')
-                plt.xlabel('Hour of the Day')
-                plt.ylabel('Normalized Count')
-                plt.grid(True)
-                plt.xticks(range(0, 24))
-                
-                if not agglo:
-                    plt.tight_layout()
-                    plt.show()
+            peak_hours_by_method['gmm'] = set(peak_hours.select('hour').to_series().to_list())
         
         # 3. Agglomerative Clustering
         if agglo:
-            plot_position += 1
-            
             # Apply Agglomerative Clustering
             ac = AgglomerativeClustering(n_clusters=3)
             ac_labels = ac.fit_predict(X)
@@ -184,13 +129,137 @@ def analyze_peak_hours(data, kmeans=True, gmm=True, agglo=True, graph=False):
             
             # Store results
             results[concept]['agglo'] = peak_hours.select(['hour', 'normalized_order_count']).sort('hour')
+            peak_hours_by_method['agglo'] = set(peak_hours.select('hour').to_series().to_list())
+        
+        # Analyze overlap between methods if requested
+        if overlap and len(peak_hours_by_method) > 0:
+            # Create a DataFrame with all 24 hours
+            all_hours = pl.DataFrame({'hour': range(24)})
             
-            # Plot data if requested
-            if graph:
-                if kmeans and gmm and agglo:
-                    plt.subplot(3, 1, plot_position)
-                elif (kmeans and agglo) or (gmm and agglo):
-                    plt.subplot(2, 1, plot_position)
+            # Count how many methods consider each hour a peak hour
+            overlap_counts = {}
+            for hour in range(24):
+                count = sum(1 for method, hours in peak_hours_by_method.items() if hour in hours)
+                overlap_counts[hour] = count
+            
+            # Create a DataFrame with overlap information
+            overlap_df = (
+                all_hours
+                .with_columns(
+                    pl.Series(name='overlap_count', values=[overlap_counts[h] for h in range(24)])
+                )
+                .join(
+                    concept_data.select(['hour', 'normalized_order_count']),
+                    on='hour',
+                    how='left'
+                )
+            )
+            
+            # Add categories for coloring based on overlap count
+            overlap_df = overlap_df.with_columns(
+                pl.when(pl.col('overlap_count') == 3).then(pl.lit('High (3)'))
+                .when(pl.col('overlap_count') == 2).then(pl.lit('Medium (2)'))
+                .when(pl.col('overlap_count') == 1).then(pl.lit('Low (1)'))
+                .otherwise(pl.lit('None (0)'))
+                .alias('overlap_category')
+            )
+            
+            # Store overlap analysis in results
+            results[concept]['overlap_analysis'] = overlap_df
+            
+            # Always display overlap graph when overlap=True, regardless of graph parameter
+            plt.figure(figsize=(15, 8))
+            
+            # Create a color palette for the overlap categories
+            colors = {'High (3)': 'red', 'Medium (2)': 'yellow', 'Low (1)': 'green', 'None (0)': 'lightgray'}
+            
+            # Plot normalized order counts
+            sns.lineplot(
+                data=concept_data.to_pandas(),
+                x='hour',
+                y='normalized_order_count',
+                marker='o'
+            )
+            
+            # Highlight hours based on overlap count
+            for hour in range(24):
+                if overlap_counts[hour] > 0:
+                    color = colors[overlap_df.filter(pl.col('hour') == hour)[0, 'overlap_category']]
+                    plt.axvspan(hour - 0.5, hour + 0.5, color=color, alpha=0.3)
+            
+            # Add a legend for the overlap categories
+            from matplotlib.patches import Patch
+            legend_elements = [
+                Patch(facecolor='red', alpha=0.3, label='High agreement (3 methods)'),
+                Patch(facecolor='yellow', alpha=0.3, label='Medium agreement (2 methods)'),
+                Patch(facecolor='green', alpha=0.3, label='Low agreement (1 method)'),
+            ]
+            plt.legend(handles=legend_elements)
+            
+            plt.title(f'Peak Hour Overlap Analysis for {concept}')
+            plt.xlabel('Hour of the Day')
+            plt.ylabel('Normalized Order Count')
+            plt.grid(True)
+            plt.xticks(range(0, 24))
+            plt.tight_layout()
+            plt.show()
+        
+        # Plot individual clustering results only if graph=True
+        if graph and (kmeans or gmm or agglo):
+            # Determine number of subplots needed
+            num_plots = sum([kmeans, gmm, agglo])
+            
+            plt.figure(figsize=(15, 5 * num_plots))
+            plot_position = 0
+            
+            # KMeans plot
+            if kmeans:
+                plot_position += 1
+                plt.subplot(num_plots, 1, plot_position)
+                
+                sns.lineplot(
+                    data=concept_data_km.to_pandas(),
+                    x='hour',
+                    y='normalized_order_count'
+                )
+                
+                # Highlight peak hours
+                peak_hours = results[concept]['kmeans']
+                for row in peak_hours.iter_rows(named=True):
+                    plt.axvspan(row['hour'] - 0.5, row['hour'] + 0.5, color='yellow', alpha=0.3)
+                
+                plt.title(f'KMeans Clustering - {concept}')
+                plt.xlabel('Hour of the Day')
+                plt.ylabel('Normalized Count')
+                plt.grid(True)
+                plt.xticks(range(0, 24))
+            
+            # GMM plot
+            if gmm:
+                plot_position += 1
+                plt.subplot(num_plots, 1, plot_position)
+                
+                sns.lineplot(
+                    data=concept_data_gm.to_pandas(),
+                    x='hour',
+                    y='normalized_order_count'
+                )
+                
+                # Highlight peak hours
+                peak_hours = results[concept]['gmm']
+                for row in peak_hours.iter_rows(named=True):
+                    plt.axvspan(row['hour'] - 0.5, row['hour'] + 0.5, color='yellow', alpha=0.3)
+                
+                plt.title(f'GMM Clustering - {concept}')
+                plt.xlabel('Hour of the Day')
+                plt.ylabel('Normalized Count')
+                plt.grid(True)
+                plt.xticks(range(0, 24))
+            
+            # Agglomerative plot
+            if agglo:
+                plot_position += 1
+                plt.subplot(num_plots, 1, plot_position)
                 
                 sns.lineplot(
                     data=concept_data_ac.to_pandas(),
@@ -199,28 +268,17 @@ def analyze_peak_hours(data, kmeans=True, gmm=True, agglo=True, graph=False):
                 )
                 
                 # Highlight peak hours
+                peak_hours = results[concept]['agglo']
                 for row in peak_hours.iter_rows(named=True):
                     plt.axvspan(row['hour'] - 0.5, row['hour'] + 0.5, color='yellow', alpha=0.3)
                 
-                plt.title(f'Average Normalized Order Counts ({concept}) - Agglomerative Clustering')
+                plt.title(f'Agglomerative Clustering - {concept}')
                 plt.xlabel('Hour of the Day')
                 plt.ylabel('Normalized Count')
                 plt.grid(True)
                 plt.xticks(range(0, 24))
-                
-                plt.tight_layout()
-                plt.show()
+            
+            plt.tight_layout()
+            plt.show()
         
     return results
-
-
-# Example usage:
-# results = analyze_peak_hours(average_hourly_order_counts, kmeans=True, gmm=True, agglo=True, graph=True)
-#
-# # To print results:
-# for concept, methods in results.items():
-#     print(f"Peak hours for {concept}:")
-#     for method_name, peak_data in methods.items():
-#         print(f"  {method_name.upper()}:")
-#         print(f"  {peak_data}")
-#     print()
