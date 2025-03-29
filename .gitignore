@@ -1,3 +1,2 @@
 # Ignore dataset files
-bills.csv
-venues.csv
+data/

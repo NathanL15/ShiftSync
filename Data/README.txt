@@ -1,1 +1,0 @@
-added this so the data file directory will be commited. Data files need to be installed through data downloader and is git ignored.
