@@ -1,5 +1,5 @@
 ## ShiftSync  
-This project was built at CxC 2025. Developed by Nathan Lu.  
+This project was built at CxC 2025 @ The University of Waterloo. Developed by Nathan Lu.  
 
 ## Inspiration  
 Scheduling inefficiencies lead to overstaffing, understaffing, and burnout across industries like healthcare and retail. Many businesses struggle to optimize shift coverage without costly manual adjustments. ShiftSync solves this by leveraging multimodal confidence analysis and PostgreSQL-driven analytics to predict peak staffing needs and improve resource allocation.  
