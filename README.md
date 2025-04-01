@@ -13,4 +13,4 @@ ShiftSync analyzes historical staffing patterns, demand fluctuations, and extern
 - Visualization: Integrated Power BI with PostgreSQL to create interactive dashboards with live insights.  
 
 ## Devpost Link  
-[TouchBistro EDA - Nathan Lu](https://devpost.com/software/touchbistro-eda-nathan-lu)  
+[ShiftSync - Nathan Lu](https://devpost.com/software/touchbistro-eda-nathan-lu)  
