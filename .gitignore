@@ -1,2 +1,3 @@
 # Ignore dataset files
 data/
+postgres_info
