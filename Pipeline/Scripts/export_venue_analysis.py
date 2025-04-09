@@ -13,7 +13,7 @@ DB_PASSWORD = "shiftSyncDB15"
 def process_data():
     """Load and preprocess the data"""
     # Read data from CSV file
-    filtered_df = pl.read_csv("../../Data/cleansed_data.csv").select(
+    filtered_df = pl.read_csv("Data/cleansed_data.csv").select(
         ["order_seated_at_local", "order_uuid", "venue_xref_id", "business_date", "concept"]
     )
 
